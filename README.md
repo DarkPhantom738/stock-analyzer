@@ -52,6 +52,10 @@ Then in `app.py` the app can use:
 ```python
 import streamlit as st
 API_KEY = st.secrets.get("ALPHAVANTAGE_API_KEY")
+
+OR 
+
+You can hardcode API key like I did :) (not recommended for obvious reasons)
 ```
 
 Deploying to Streamlit Community Cloud (recommended)
@@ -62,14 +66,9 @@ Deploying to Streamlit Community Cloud (recommended)
 4. Add the API key under "Secrets" (same key name used in your code).
 5. Deploy — Streamlit Cloud will install dependencies from `requirements.txt` and host the app.
 
-Alternative hosting
--------------------
-- Render or Railway: create a web service that runs `streamlit run app.py --server.port $PORT` and set the API key as an environment variable.
-- Docker + Cloud Run / ECS: containerize the app with a simple Dockerfile and deploy to your cloud provider.
-
-Notes and cautions
+Notes
 ------------------
-- This app makes live API calls and is subject to Alpha Vantage rate limits. The free tier is limited; the app already waits between requests to reduce throttling.
+- This app makes live API calls and thus is affected by Alpha Vantage rate limits. The free tier is limited; the app already waits between requests to reduce throttling.
 - This is a demo/research tool only. Do not rely on it for trading decisions.
 
 Files added or edited
@@ -78,6 +77,4 @@ Files added or edited
 - `app.py` — main Streamlit application
 - `README.md` — this file
 
-Author
-------
-Developed by Aniket Mangalampalli
+Developed by Aniket Mangalampalli with love!
