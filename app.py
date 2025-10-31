@@ -4,11 +4,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 import os
-# API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("API_KEY")
 
 # # Configuration
 BASE_URL = "https://www.alphavantage.co/query"
-API_KEY = "IVCROGUOH0S4GJVS"
 
 # Helper function to get the last trading day
 def get_last_trading_day(date):

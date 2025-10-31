@@ -52,10 +52,6 @@ Then in `app.py` the app can use:
 ```python
 import streamlit as st
 API_KEY = st.secrets.get("ALPHAVANTAGE_API_KEY")
-
-OR 
-
-You can hardcode API key like I did :) (not recommended for obvious reasons)
 ```
 
 Deploying to Streamlit Community Cloud (recommended)
