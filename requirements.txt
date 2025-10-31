@@ -1,0 +1,9 @@
+# Requirements for the Streamlit app
+# Install with: pip install -r requirements.txt
+
+streamlit
+pandas
+requests
+
+# Optional (recommended for faster file-watching on macOS):
+# watchdog
