@@ -50,13 +50,23 @@ ALPHAVANTAGE_API_KEY = "your_api_key_here"
 
 The app automatically reads from `st.secrets` or environment variables.
 
-Deploying to Streamlit Community Cloud (recommended)
----------------------------------------------------
+Deploying to Render.com or Streamlit Cloud
+-------------------------------------------
+**Option 1: Render.com (Recommended)**
+1. Push this repository to GitHub.
+2. Go to https://render.com and sign in with GitHub.
+3. Click "New +" → "Web Service".
+4. Connect your repository.
+5. Render will auto-detect the `render.yaml` configuration.
+6. Add environment variable: `ALPHAVANTAGE_API_KEY = "your_key_here"`.
+7. Deploy!
+
+**Option 2: Streamlit Community Cloud**
 1. Push this repository to GitHub.
 2. Go to https://streamlit.io/cloud and sign in with GitHub.
 3. Click "New app", pick the repo, branch and `app.py` as the main file.
-4. Add the API key under "Secrets" (same key name used in your code).
-5. Deploy — Streamlit Cloud will install dependencies from `requirements.txt` and host the app.
+4. Add the API key under "Secrets".
+5. Deploy!
 
 Notes
 ------------------
@@ -67,6 +77,7 @@ Files added or edited
 ---------------------
 - `requirements.txt` — lists Python dependencies
 - `app.py` — main Streamlit application
+- `render.yaml` — Render.com deployment configuration
 - `README.md` — this file
 
 Developed by Aniket Mangalampalli with love!

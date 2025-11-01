@@ -11,12 +11,15 @@ BASE_URL = "https://www.alphavantage.co/query"
 
 def get_api_key():
     """Get API key from Streamlit secrets or environment variable"""
+    # Try Streamlit secrets first (for deployed apps)
     try:
-        # Try Streamlit secrets first (for deployed apps)
         if hasattr(st, 'secrets'):
-            if 'ALPHAVANTAGE_API_KEY' in st.secrets:
+            # Check if secrets has the key using try-except for safety
+            try:
                 return st.secrets['ALPHAVANTAGE_API_KEY']
-    except:
+            except (KeyError, AttributeError):
+                pass
+    except Exception:
         pass
     
     # Fall back to environment variable (for local development)
@@ -407,9 +410,9 @@ def main():
     if not api_key or api_key.strip() == "YOUR_API_KEY_HERE" or not api_key:
         st.error("⚠️ Please set your Alpha Vantage API key")
         st.info("""
-        **For Streamlit Cloud:**
-        1. Go to your app settings → "Secrets"
-        2. Add: `ALPHAVANTAGE_API_KEY = "your_api_key_here"`
+        **For Render.com / Streamlit Cloud:**
+        1. Go to your app settings → "Environment" or "Secrets"
+        2. Add environment variable: `ALPHAVANTAGE_API_KEY = "your_api_key_here"`
         
         **For local development:**
         1. Create `.streamlit/secrets.toml`
