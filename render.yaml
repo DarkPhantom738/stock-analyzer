@@ -2,6 +2,7 @@ services:
   - type: web
     name: stock-analyzer
     env: python
+    pythonVersion: 3.11.0
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
