@@ -3,28 +3,30 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import time
-import os
-API_KEY = os.getenv("API_KEY")
+import pytz
 
-# # Configuration
+# Configuration
+API_KEY = "IVCROGUOH0S4GJVS"
 BASE_URL = "https://www.alphavantage.co/query"
 
-# Helper function to get the last trading day
-def get_last_trading_day(date):
-    """Return the last trading day (skip weekends)"""
-    while date.weekday() >= 5:  # 5=Saturday, 6=Sunday
-        date -= timedelta(days=1)
-    return date
+def get_market_status():
+    """Check if market is currently open"""
+    eastern = pytz.timezone('US/Eastern')
+    now = datetime.now(eastern)
+    
+    # Market hours: 9:30 AM - 4:00 PM ET, Monday-Friday
+    is_weekday = now.weekday() < 5
+    market_open = now.time() >= datetime.strptime("09:30", "%H:%M").time()
+    market_close = now.time() <= datetime.strptime("16:00", "%H:%M").time()
+    
+    is_open = is_weekday and market_open and market_close
+    
+    return {
+        'is_open': is_open,
+        'current_time': now.strftime('%Y-%m-%d %H:%M:%S %Z'),
+        'is_weekday': is_weekday
+    }
 
-# Helper function to get the next trading day
-def get_next_trading_day(date):
-    """Return the next trading day (skip weekends)"""
-    date += timedelta(days=1)
-    while date.weekday() >= 5:
-        date += timedelta(days=1)
-    return date
-
-# Function to get top gainers
 def fetch_top_gainers():
     """Fetch top gainers using Alpha Vantage TOP_GAINERS_LOSERS endpoint"""
     try:
@@ -37,61 +39,145 @@ def fetch_top_gainers():
         response.raise_for_status()
         data = response.json()
         
-        # Check for API errors
         if 'Error Message' in data:
             st.error(f"API Error: {data['Error Message']}")
-            return pd.DataFrame()
+            return pd.DataFrame(), None
         
         if 'Note' in data:
-            st.warning(f"API Limit: {data['Note']}")
-            return pd.DataFrame()
+            st.warning(f"API Rate Limit: {data['Note']}")
+            return pd.DataFrame(), None
         
-        # Extract gainers
+        if 'Information' in data:
+            st.warning(f"API Info: {data['Information']}")
+            return pd.DataFrame(), None
+        
         if 'top_gainers' not in data:
             st.warning("No gainers data available")
-            return pd.DataFrame()
+            return pd.DataFrame(), None
+        
+        # Get metadata if available
+        metadata = data.get('metadata', None)
+        last_updated = data.get('last_updated', 'Unknown')
         
         gainers = data['top_gainers']
-        
-        # Convert to DataFrame
         df = pd.DataFrame(gainers)
         
         if not df.empty:
-            # Select and rename columns
-            df = df[['ticker', 'price', 'change_percentage']].copy()
-            df.columns = ['Symbol', 'Price', 'Change %']
+            df = df[['ticker', 'price', 'change_percentage', 'volume']].copy()
+            df.columns = ['Symbol', 'Price', 'Change %', 'Volume']
             
-            # Clean up the change percentage (remove % sign)
             df['Change %'] = df['Change %'].str.rstrip('%').astype(float)
             df['Price'] = df['Price'].astype(float).round(2)
+            df['Volume'] = pd.to_numeric(df['Volume'], errors='coerce')
             
-            # Filter: Minimum price of $3 and minimum change of 50%
+            # Filter: Price >= $3 and Change >= 50%
             df = df[(df['Price'] >= 3.0) & (df['Change %'] >= 50.0)]
-            
-            # Get company names using OVERVIEW endpoint (limited due to API rate)
-            # For free tier, we'll skip names to save API calls
-            df.insert(1, 'Name', df['Symbol'])  # Use symbol as name for now
-            
-            # Sort by change percentage
-            df = df.sort_values('Change %', ascending=False).head(20)
+            df = df.sort_values('Change %', ascending=False)
         
-        return df
+        return df, last_updated
         
     except requests.exceptions.RequestException as e:
         st.error(f"Error fetching gainers: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), None
     except Exception as e:
         st.error(f"Unexpected error: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), None
 
-# Function to check if stock has news
-def has_news_on_date(symbol, date_str):
-    """Check if a stock has news on a specific date using Alpha Vantage NEWS_SENTIMENT"""
+def get_intraday_data(symbol, date_str=None):
+    """Get intraday data to verify if stock actually gained today"""
     try:
-        # Convert date to timestamp format for API
-        target_date = datetime.strptime(date_str, "%Y-%m-%d")
-        time_from = target_date.strftime("%Y%m%dT0000")
-        time_to = target_date.strftime("%Y%m%dT2359")
+        params = {
+            'function': 'TIME_SERIES_INTRADAY',
+            'symbol': symbol,
+            'interval': '60min',
+            'apikey': API_KEY,
+            'outputsize': 'compact'
+        }
+        
+        response = requests.get(BASE_URL, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'Error Message' in data or 'Note' in data or 'Information' in data:
+            return None
+        
+        if 'Time Series (60min)' not in data:
+            return None
+        
+        time_series = data['Time Series (60min)']
+        
+        # Convert to DataFrame
+        df = pd.DataFrame.from_dict(time_series, orient='index')
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
+        
+        # Get today's date
+        if date_str:
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        else:
+            target_date = datetime.now().date()
+        
+        # Filter for target date
+        df_today = df[df.index.date == target_date]
+        
+        if not df_today.empty:
+            open_price = float(df_today.iloc[0]['1. open'])
+            close_price = float(df_today.iloc[-1]['4. close'])
+            percent_change = ((close_price - open_price) / open_price) * 100
+            
+            return {
+                'open': open_price,
+                'close': close_price,
+                'change': percent_change,
+                'verified': True
+            }
+        
+        return None
+        
+    except:
+        return None
+
+def get_company_overview(symbol):
+    """Get company overview including market cap"""
+    try:
+        params = {
+            'function': 'OVERVIEW',
+            'symbol': symbol,
+            'apikey': API_KEY
+        }
+        
+        response = requests.get(BASE_URL, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'Error Message' in data or 'Note' in data or 'Information' in data:
+            return None
+        
+        market_cap = data.get('MarketCapitalization', '0')
+        name = data.get('Name', symbol)
+        
+        try:
+            market_cap_val = float(market_cap) if market_cap else 0
+        except:
+            market_cap_val = 0
+        
+        return {
+            'name': name,
+            'market_cap': market_cap_val,
+            'market_cap_millions': market_cap_val / 1_000_000 if market_cap_val > 0 else 0
+        }
+        
+    except:
+        return None
+
+def check_news_sentiment(symbol, hours_back=24):
+    """Check if stock has recent news"""
+    try:
+        now = datetime.now()
+        past = now - timedelta(hours=hours_back)
+        
+        time_from = past.strftime("%Y%m%dT%H%M")
+        time_to = now.strftime("%Y%m%dT%H%M")
         
         params = {
             'function': 'NEWS_SENTIMENT',
@@ -106,64 +192,79 @@ def has_news_on_date(symbol, date_str):
         response.raise_for_status()
         data = response.json()
         
-        # Check for errors
-        if 'Error Message' in data or 'Note' in data:
-            return False
+        if 'Error Message' in data or 'Note' in data or 'Information' in data:
+            return None
         
-        # Check if there are any news items
         if 'feed' in data and len(data['feed']) > 0:
-            return True
+            return len(data['feed'])
         
-        return False
+        return 0
         
     except:
-        return False
+        return None
 
-# Function to filter gainers without news
-def filter_gainers_without_news(gainers_df, date_str, max_stocks=10):
-    """Filter gainers to exclude those with news on the date"""
+def filter_gainers_comprehensive(gainers_df, max_stocks=10, check_today=True):
+    """Filter gainers by market cap and news"""
     if gainers_df.empty:
-        return gainers_df
+        return pd.DataFrame()
     
-    # Limit to avoid API rate limits (5 calls/minute for free tier)
     gainers_df_limited = gainers_df.head(max_stocks)
     
-    st.info(f"Checking top {len(gainers_df_limited)} gainers for news... This will take about {len(gainers_df_limited) * 12} seconds due to API rate limits.")
+    st.info(f"Analyzing top {len(gainers_df_limited)} gainers... ~{len(gainers_df_limited) * 26} seconds")
     progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    filtered_symbols = []
+    filtered_data = []
     total = len(gainers_df_limited)
     
-    # Use enumerate for proper indexing
     for position, (idx, row) in enumerate(gainers_df_limited.iterrows()):
         symbol = row['Symbol']
+        status_text.text(f"Checking {symbol}... ({position + 1}/{total})")
+        
+        # Get company overview for market cap
+        overview = get_company_overview(symbol)
+        time.sleep(13)
+        
+        if overview is None:
+            progress_bar.progress((position + 1) / total)
+            continue
+        
+        market_cap_millions = overview['market_cap_millions']
+        
+        # Filter: Market cap >= 30M
+        if market_cap_millions < 30:
+            progress_bar.progress((position + 1) / total)
+            continue
         
         # Check for news
-        has_news = has_news_on_date(symbol, date_str)
+        news_count = check_news_sentiment(symbol, hours_back=24)
+        time.sleep(13)
         
-        if not has_news:
-            filtered_symbols.append(symbol)
+        # Only include if no news
+        if news_count is not None and news_count > 0:
+            progress_bar.progress((position + 1) / total)
+            continue
         
-        # Update progress using position (0-based, so add 1)
+        filtered_data.append({
+            'Symbol': symbol,
+            'Name': overview['name'],
+            'Price': row['Price'],
+            'Change %': row['Change %'],
+            'Market Cap (M)': f"${market_cap_millions:.1f}M",
+            'Volume': f"{int(row['Volume']):,}" if pd.notna(row['Volume']) else 'N/A'
+        })
+        
         progress_bar.progress((position + 1) / total)
-        
-        # Rate limiting: Free tier allows 5 calls/minute
-        # Wait 12 seconds between calls to stay under limit
-        if position < total - 1:  # Don't wait after the last call
-            time.sleep(12)
     
     progress_bar.empty()
+    status_text.empty()
     
-    # Filter dataframe
-    result = gainers_df[gainers_df['Symbol'].isin(filtered_symbols)]
+    result = pd.DataFrame(filtered_data)
     return result
 
-# Function to get earnings calendar
-def fetch_earnings_calendar(date_str):
-    """Fetch earnings calendar using Alpha Vantage EARNINGS_CALENDAR"""
+def fetch_earnings_calendar():
+    """Fetch earnings calendar for next 3 months"""
     try:
-        # Alpha Vantage uses horizon parameter (3month, 6month, 12month)
-        # We'll get 3month and filter for our specific date
         params = {
             'function': 'EARNINGS_CALENDAR',
             'horizon': '3month',
@@ -173,45 +274,40 @@ def fetch_earnings_calendar(date_str):
         response = requests.get(BASE_URL, params=params, timeout=15)
         response.raise_for_status()
         
-        # The response is CSV format
-        from io import StringIO
-        
-        # Check if response is JSON (error message)
         try:
             json_data = response.json()
             if 'Error Message' in json_data:
                 st.error(f"API Error: {json_data['Error Message']}")
                 return pd.DataFrame()
             if 'Note' in json_data:
-                st.warning(f"API Limit: {json_data['Note']}")
+                st.warning(f"API Rate Limit: {json_data['Note']}")
+                return pd.DataFrame()
+            if 'Information' in json_data:
+                st.warning(f"API Info: {json_data['Information']}")
                 return pd.DataFrame()
         except:
-            pass  # Not JSON, continue with CSV parsing
+            pass
         
-        # Parse CSV
+        from io import StringIO
         df = pd.read_csv(StringIO(response.text))
         
         if df.empty:
             return pd.DataFrame()
         
-        # Filter for the specific date
-        df['reportDate'] = pd.to_datetime(df['reportDate']).dt.date
-        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        # Filter for tomorrow's earnings
+        df['reportDate'] = pd.to_datetime(df['reportDate'], errors='coerce').dt.date
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
         
-        df = df[df['reportDate'] == target_date]
+        df = df[df['reportDate'] == tomorrow]
         
         return df
         
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching earnings calendar: {e}")
-        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Unexpected error: {e}")
+        st.error(f"Error fetching earnings: {e}")
         return pd.DataFrame()
 
-# Function to get earnings history
 def get_earnings_history(symbol):
-    """Get earnings history to check beat rate using EARNINGS endpoint"""
+    """Check if stock beat earnings 3+ times in last 4 quarters"""
     try:
         params = {
             'function': 'EARNINGS',
@@ -223,8 +319,7 @@ def get_earnings_history(symbol):
         response.raise_for_status()
         data = response.json()
         
-        # Check for errors
-        if 'Error Message' in data or 'Note' in data:
+        if 'Error Message' in data or 'Note' in data or 'Information' in data:
             return None
         
         if 'quarterlyEarnings' not in data:
@@ -235,13 +330,12 @@ def get_earnings_history(symbol):
         if len(quarterly) < 4:
             return None
         
-        # Check last 4 quarters for beats
         beats = 0
         for i in range(4):
             reported = quarterly[i].get('reportedEPS')
             estimated = quarterly[i].get('estimatedEPS')
             
-            if reported and estimated:
+            if reported and estimated and reported != 'None' and estimated != 'None':
                 try:
                     if float(reported) > float(estimated):
                         beats += 1
@@ -253,146 +347,119 @@ def get_earnings_history(symbol):
     except:
         return None
 
-# Function to filter earnings by beat history
-def filter_earnings_by_beat_history(earnings_df, max_stocks=5):
-    """Filter earnings to include only stocks that beat estimates 3+ times in last 4 quarters"""
+def filter_earnings_by_history(earnings_df, max_stocks=5):
+    """Filter earnings by beat history"""
     if earnings_df.empty:
-        return earnings_df
+        return pd.DataFrame()
     
-    # Limit to avoid API rate limits
     earnings_df_limited = earnings_df.head(max_stocks)
     
-    st.info(f"Checking earnings history for {len(earnings_df_limited)} stocks... This will take about {len(earnings_df_limited) * 12} seconds due to API rate limits.")
+    st.info(f"Checking earnings history for {len(earnings_df_limited)} stocks... ~{len(earnings_df_limited) * 13} seconds")
     progress_bar = st.progress(0)
+    status_text = st.empty()
     
     filtered_data = []
     total = len(earnings_df_limited)
     
-    # Use enumerate for proper indexing
     for position, (idx, row) in enumerate(earnings_df_limited.iterrows()):
         symbol = row['symbol']
+        status_text.text(f"Checking {symbol}... ({position + 1}/{total})")
         
-        # Check beat history
         beat_history = get_earnings_history(symbol)
+        time.sleep(13)
         
         if beat_history:
             filtered_data.append({
                 'Symbol': symbol,
                 'Estimated EPS': row.get('estimate', 'N/A'),
-                'Fiscal Date': row.get('fiscalDateEnding', 'N/A'),
                 'Report Date': row.get('reportDate', 'N/A')
             })
         
-        # Update progress using position (0-based, so add 1)
         progress_bar.progress((position + 1) / total)
-        
-        # Rate limiting: Wait 12 seconds between calls
-        if position < total - 1:
-            time.sleep(12)
     
     progress_bar.empty()
+    status_text.empty()
     
-    # Create result dataframe
-    result = pd.DataFrame(filtered_data)
-    
-    return result
+    return pd.DataFrame(filtered_data)
 
-# Streamlit App
 def main():
     st.set_page_config(page_title="Stock Analyzer", layout="wide")
     
-    st.title("Aniket Mangalampalli's Stock Market Analyzer")
+    st.title("🚀 Aniket Mangalampalli's Stock Market Analyzer")
     st.markdown("---")
     
-    # Check if API key is set
     if not API_KEY or API_KEY.strip() == "YOUR_API_KEY_HERE":
-        st.error("Please set your Alpha Vantage API key in the code.")
-        st.info("Get a **FREE** API key from https://www.alphavantage.co/support/#api-key")
-        st.info("No credit card required | 25 requests per day free tier")
+        st.error("⚠️ Please set your Alpha Vantage API key")
+        st.info("Get FREE key: https://www.alphavantage.co/support/#api-key")
         st.stop()
     
-    # API usage warning
-    st.warning("Rate Limit Notice: Alpha Vantage free tier allows 5 API calls per minute and 25 per day. This app checks a limited number of stocks and waits 12 seconds between calls.")
+    # Market status
+    market_status = get_market_status()
+    if market_status['is_open']:
+        st.success(f"🟢 Market is OPEN | {market_status['current_time']}")
+    else:
+        st.info(f"🔴 Market is CLOSED | {market_status['current_time']}")
+        st.caption("Note: TOP_GAINERS_LOSERS shows the most recent trading day data")
     
-    # Get current date and calculate relevant dates
-    today = datetime.now().date()
+    st.warning("⏱️ Rate Limit: Free tier = 5 calls/min, 25/day. App waits 13s between calls.")
     
-    # For gainers: use last trading day
-    last_trading_day = get_last_trading_day(today)
-    gainers_date_str = last_trading_day.strftime("%Y-%m-%d")
-    
-    # For earnings: use next trading day
-    next_trading_day = get_next_trading_day(today)
-    earnings_date_str = next_trading_day.strftime("%Y-%m-%d")
-    
-    # Section 1: Top Gainers Without News
-    st.header("Top Gainers Without Any News")
-    st.subheader(f"Date: {last_trading_day.strftime('%A, %B %d, %Y')}")
-    st.caption("Filtered: Minimum price $3.00 | Minimum gain 50%")
+    # Section 1: Top Gainers
+    st.header("📈 Top Gainers Without News")
+    st.caption("✅ Price ≥ $3 | ✅ Gain ≥ 50% | ✅ Market Cap ≥ $30M | ✅ No Recent News (24hrs)")
     
     with st.spinner("Fetching top gainers from Alpha Vantage..."):
-        gainers_df = fetch_top_gainers()
+        gainers_df, last_updated = fetch_top_gainers()
+    
+    if last_updated:
+        st.info(f"📅 Data last updated: {last_updated}")
 
     if not gainers_df.empty:
-        st.success(f"Found {len(gainers_df)} gainers")
+        st.success(f"Found {len(gainers_df)} gainers meeting price/gain criteria")
 
-        # Show all gainers first
-        with st.expander("View All Top Gainers (Before Filtering)", expanded=False):
+        with st.expander("📊 All Top Gainers (Before Filtering)", expanded=False):
             st.dataframe(gainers_df, use_container_width=True, hide_index=True)
 
-        # Filter out stocks with news (checking top 10 to save API calls)
-        filtered_gainers = filter_gainers_without_news(gainers_df, gainers_date_str, max_stocks=10)
+        if st.button("🔍 Filter by Market Cap & News", type="primary"):
+            filtered_gainers = filter_gainers_comprehensive(gainers_df, max_stocks=10)
 
-        if not filtered_gainers.empty:
-            st.success(f"Found {len(filtered_gainers)} gainers without news")
-            st.dataframe(
-                filtered_gainers,
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.warning("No gainers found without news in the top 10 stocks checked.")
+            if not filtered_gainers.empty:
+                st.success(f"✅ {len(filtered_gainers)} stocks meet ALL criteria")
+                st.dataframe(filtered_gainers, use_container_width=True, hide_index=True)
+            else:
+                st.warning("❌ No stocks found meeting all criteria")
     else:
-        st.warning("Unable to fetch gainers data. Check the error messages above.")
+        st.warning("Unable to fetch gainers data. Check API status or rate limits.")
     
     st.markdown("---")
     
-    # Section 2: Stocks with Earnings Tomorrow
-    st.header("Stocks with Earnings Tomorrow Projected to Beat Estimates")
-    st.subheader(f"Earnings Date: {next_trading_day.strftime('%A, %B %d, %Y')}")
-    st.caption("Filtered: Beat estimates in at least 3 of last 4 quarters")
+    # Section 2: Earnings
+    st.header("📊 Earnings Tomorrow - Predicted to Beat")
+    st.caption("✅ Beat estimates in 3+ of last 4 quarters")
     
-    with st.spinner("Fetching earnings calendar from Alpha Vantage..."):
-        earnings_df = fetch_earnings_calendar(earnings_date_str)
+    with st.spinner("Fetching earnings calendar..."):
+        earnings_df = fetch_earnings_calendar()
 
     if not earnings_df.empty:
-        st.success(f"Found {len(earnings_df)} stocks with earnings scheduled")
+        st.success(f"Found {len(earnings_df)} stocks with earnings tomorrow")
 
-        # Show all earnings first
-        with st.expander("View All Scheduled Earnings (Before Filtering)", expanded=False):
+        with st.expander("📅 All Scheduled Earnings", expanded=False):
             st.dataframe(earnings_df.head(20), use_container_width=True, hide_index=True)
 
-        # Filter by beat history (checking top 5 to save API calls)
-        filtered_earnings = filter_earnings_by_beat_history(earnings_df, max_stocks=5)
+        if st.button("🔍 Filter by Beat History", type="primary"):
+            filtered_earnings = filter_earnings_by_history(earnings_df, max_stocks=5)
 
-        if not filtered_earnings.empty:
-            st.success(f"Found {len(filtered_earnings)} stocks with strong earnings history")
-            st.dataframe(
-                filtered_earnings,
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.warning("No stocks found that meet the earnings beat criteria in the top 5 stocks checked.")
+            if not filtered_earnings.empty:
+                st.success(f"✅ {len(filtered_earnings)} stocks with strong beat history")
+                st.dataframe(filtered_earnings, use_container_width=True, hide_index=True)
+            else:
+                st.warning("❌ No stocks found with 3+ beats in last 4 quarters")
     else:
-        st.warning("No earnings scheduled for tomorrow or unable to fetch data.")
+        st.warning("No earnings scheduled for tomorrow or unable to fetch data")
     
-    # Footer
     st.markdown("---")
-    st.caption(f"Data provided by Alpha Vantage API | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    st.caption("Free tier limitations: 5 API calls/minute, 25 calls/day. Limited to 10 gainers and 5 earnings stocks to conserve API quota.")
-    # Add developer attribution
-    st.caption("Developed by Aniket Mangalampalli")
+    st.caption(f"📊 Data: Alpha Vantage API | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.caption("💻 Developed by Aniket Mangalampalli")
+    st.caption("ℹ️ TOP_GAINERS_LOSERS endpoint provides real-time data during market hours and most recent trading day data when market is closed")
 
 if __name__ == "__main__":
     main()
