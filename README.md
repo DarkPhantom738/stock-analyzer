@@ -41,18 +41,14 @@ The app requires an Alpha Vantage API key. Do NOT hard-code keys in `app.py` bef
 For local testing you can create a secrets file:
 
 - Create the folder `.streamlit` in the project root.
-- Add `.streamlit/secrets.toml` with the following content (example):
+- Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`
+- Add your API key:
 
 ```toml
 ALPHAVANTAGE_API_KEY = "your_api_key_here"
 ```
 
-Then in `app.py` the app can use:
-
-```python
-import streamlit as st
-API_KEY = st.secrets.get("ALPHAVANTAGE_API_KEY")
-```
+The app automatically reads from `st.secrets` or environment variables.
 
 Deploying to Streamlit Community Cloud (recommended)
 ---------------------------------------------------

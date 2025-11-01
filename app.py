@@ -4,10 +4,23 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 import pytz
+import os
 
 # Configuration
-API_KEY = "IVCROGUOH0S4GJVS"
 BASE_URL = "https://www.alphavantage.co/query"
+
+def get_api_key():
+    """Get API key from Streamlit secrets or environment variable"""
+    try:
+        # Try Streamlit secrets first (for deployed apps)
+        if hasattr(st, 'secrets'):
+            if 'ALPHAVANTAGE_API_KEY' in st.secrets:
+                return st.secrets['ALPHAVANTAGE_API_KEY']
+    except:
+        pass
+    
+    # Fall back to environment variable (for local development)
+    return os.getenv('ALPHAVANTAGE_API_KEY', None)
 
 def get_market_status():
     """Check if market is currently open"""
@@ -27,12 +40,12 @@ def get_market_status():
         'is_weekday': is_weekday
     }
 
-def fetch_top_gainers():
+def fetch_top_gainers(api_key):
     """Fetch top gainers using Alpha Vantage TOP_GAINERS_LOSERS endpoint"""
     try:
         params = {
             'function': 'TOP_GAINERS_LOSERS',
-            'apikey': API_KEY
+            'apikey': api_key
         }
         
         response = requests.get(BASE_URL, params=params, timeout=15)
@@ -83,14 +96,14 @@ def fetch_top_gainers():
         st.error(f"Unexpected error: {e}")
         return pd.DataFrame(), None
 
-def get_intraday_data(symbol, date_str=None):
+def get_intraday_data(symbol, api_key, date_str=None):
     """Get intraday data to verify if stock actually gained today"""
     try:
         params = {
             'function': 'TIME_SERIES_INTRADAY',
             'symbol': symbol,
             'interval': '60min',
-            'apikey': API_KEY,
+            'apikey': api_key,
             'outputsize': 'compact'
         }
         
@@ -137,13 +150,13 @@ def get_intraday_data(symbol, date_str=None):
     except:
         return None
 
-def get_company_overview(symbol):
+def get_company_overview(symbol, api_key):
     """Get company overview including market cap"""
     try:
         params = {
             'function': 'OVERVIEW',
             'symbol': symbol,
-            'apikey': API_KEY
+            'apikey': api_key
         }
         
         response = requests.get(BASE_URL, params=params, timeout=10)
@@ -170,7 +183,7 @@ def get_company_overview(symbol):
     except:
         return None
 
-def check_news_sentiment(symbol, hours_back=24):
+def check_news_sentiment(symbol, api_key, hours_back=24):
     """Check if stock has recent news"""
     try:
         now = datetime.now()
@@ -185,7 +198,7 @@ def check_news_sentiment(symbol, hours_back=24):
             'time_from': time_from,
             'time_to': time_to,
             'limit': 50,
-            'apikey': API_KEY
+            'apikey': api_key
         }
         
         response = requests.get(BASE_URL, params=params, timeout=10)
@@ -203,7 +216,7 @@ def check_news_sentiment(symbol, hours_back=24):
     except:
         return None
 
-def filter_gainers_comprehensive(gainers_df, max_stocks=10, check_today=True):
+def filter_gainers_comprehensive(gainers_df, api_key, max_stocks=10, check_today=True):
     """Filter gainers by market cap and news"""
     if gainers_df.empty:
         return pd.DataFrame()
@@ -222,7 +235,7 @@ def filter_gainers_comprehensive(gainers_df, max_stocks=10, check_today=True):
         status_text.text(f"Checking {symbol}... ({position + 1}/{total})")
         
         # Get company overview for market cap
-        overview = get_company_overview(symbol)
+        overview = get_company_overview(symbol, api_key)
         time.sleep(13)
         
         if overview is None:
@@ -237,7 +250,7 @@ def filter_gainers_comprehensive(gainers_df, max_stocks=10, check_today=True):
             continue
         
         # Check for news
-        news_count = check_news_sentiment(symbol, hours_back=24)
+        news_count = check_news_sentiment(symbol, api_key, hours_back=24)
         time.sleep(13)
         
         # Only include if no news
@@ -262,13 +275,13 @@ def filter_gainers_comprehensive(gainers_df, max_stocks=10, check_today=True):
     result = pd.DataFrame(filtered_data)
     return result
 
-def fetch_earnings_calendar():
+def fetch_earnings_calendar(api_key):
     """Fetch earnings calendar for next 3 months"""
     try:
         params = {
             'function': 'EARNINGS_CALENDAR',
             'horizon': '3month',
-            'apikey': API_KEY
+            'apikey': api_key
         }
         
         response = requests.get(BASE_URL, params=params, timeout=15)
@@ -306,13 +319,13 @@ def fetch_earnings_calendar():
         st.error(f"Error fetching earnings: {e}")
         return pd.DataFrame()
 
-def get_earnings_history(symbol):
+def get_earnings_history(symbol, api_key):
     """Check if stock beat earnings 3+ times in last 4 quarters"""
     try:
         params = {
             'function': 'EARNINGS',
             'symbol': symbol,
-            'apikey': API_KEY
+            'apikey': api_key
         }
         
         response = requests.get(BASE_URL, params=params, timeout=10)
@@ -347,7 +360,7 @@ def get_earnings_history(symbol):
     except:
         return None
 
-def filter_earnings_by_history(earnings_df, max_stocks=5):
+def filter_earnings_by_history(earnings_df, api_key, max_stocks=5):
     """Filter earnings by beat history"""
     if earnings_df.empty:
         return pd.DataFrame()
@@ -365,7 +378,7 @@ def filter_earnings_by_history(earnings_df, max_stocks=5):
         symbol = row['symbol']
         status_text.text(f"Checking {symbol}... ({position + 1}/{total})")
         
-        beat_history = get_earnings_history(symbol)
+        beat_history = get_earnings_history(symbol, api_key)
         time.sleep(13)
         
         if beat_history:
@@ -388,9 +401,22 @@ def main():
     st.title("🚀 Aniket Mangalampalli's Stock Market Analyzer")
     st.markdown("---")
     
-    if not API_KEY or API_KEY.strip() == "YOUR_API_KEY_HERE":
+    # Get API key from secrets
+    api_key = get_api_key()
+    
+    if not api_key or api_key.strip() == "YOUR_API_KEY_HERE" or not api_key:
         st.error("⚠️ Please set your Alpha Vantage API key")
-        st.info("Get FREE key: https://www.alphavantage.co/support/#api-key")
+        st.info("""
+        **For Streamlit Cloud:**
+        1. Go to your app settings → "Secrets"
+        2. Add: `ALPHAVANTAGE_API_KEY = "your_api_key_here"`
+        
+        **For local development:**
+        1. Create `.streamlit/secrets.toml`
+        2. Add: `ALPHAVANTAGE_API_KEY = "your_api_key_here"`
+        
+        Get a FREE key: https://www.alphavantage.co/support/#api-key
+        """)
         st.stop()
     
     # Market status
@@ -408,7 +434,7 @@ def main():
     st.caption("Price ≥ $3 | Gain ≥ 50% | Market Cap ≥ $30M | No Recent News (24hrs)")
     
     with st.spinner("Fetching top gainers from Alpha Vantage..."):
-        gainers_df, last_updated = fetch_top_gainers()
+        gainers_df, last_updated = fetch_top_gainers(api_key)
     
     if last_updated:
         st.info(f"Data last updated: {last_updated}")
@@ -420,7 +446,7 @@ def main():
             st.dataframe(gainers_df, use_container_width=True, hide_index=True)
 
         if st.button("Filter by Market Cap & News", type="primary"):
-            filtered_gainers = filter_gainers_comprehensive(gainers_df, max_stocks=10)
+            filtered_gainers = filter_gainers_comprehensive(gainers_df, api_key, max_stocks=10)
 
             if not filtered_gainers.empty:
                 st.success(f"{len(filtered_gainers)} stocks meet ALL criteria")
@@ -437,7 +463,7 @@ def main():
     st.caption("Beat estimates in 3+ of last 4 quarters")
     
     with st.spinner("Fetching earnings calendar..."):
-        earnings_df = fetch_earnings_calendar()
+        earnings_df = fetch_earnings_calendar(api_key)
 
     if not earnings_df.empty:
         st.success(f"Found {len(earnings_df)} stocks with earnings tomorrow")
@@ -446,7 +472,7 @@ def main():
             st.dataframe(earnings_df.head(20), use_container_width=True, hide_index=True)
 
         if st.button("Filter by Beat History", type="primary"):
-            filtered_earnings = filter_earnings_by_history(earnings_df, max_stocks=5)
+            filtered_earnings = filter_earnings_by_history(earnings_df, api_key, max_stocks=5)
 
             if not filtered_earnings.empty:
                 st.success(f"{len(filtered_earnings)} stocks with strong beat history")
