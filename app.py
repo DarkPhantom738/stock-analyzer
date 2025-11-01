@@ -396,45 +396,45 @@ def main():
     # Market status
     market_status = get_market_status()
     if market_status['is_open']:
-        st.success(f"🟢 Market is OPEN | {market_status['current_time']}")
+        st.success(f"Market is OPEN | {market_status['current_time']}")
     else:
-        st.info(f"🔴 Market is CLOSED | {market_status['current_time']}")
+        st.info(f" Market is CLOSED | {market_status['current_time']}")
         st.caption("Note: TOP_GAINERS_LOSERS shows the most recent trading day data")
     
-    st.warning("⏱️ Rate Limit: Free tier = 5 calls/min, 25/day. App waits 13s between calls.")
+    st.warning("⏱Rate Limit: Free tier = 5 calls/min, 25/day. App waits 13s between calls.")
     
     # Section 1: Top Gainers
-    st.header("📈 Top Gainers Without News")
-    st.caption("✅ Price ≥ $3 | ✅ Gain ≥ 50% | ✅ Market Cap ≥ $30M | ✅ No Recent News (24hrs)")
+    st.header("Top Gainers Without News")
+    st.caption("Price ≥ $3 | Gain ≥ 50% | Market Cap ≥ $30M | No Recent News (24hrs)")
     
     with st.spinner("Fetching top gainers from Alpha Vantage..."):
         gainers_df, last_updated = fetch_top_gainers()
     
     if last_updated:
-        st.info(f"📅 Data last updated: {last_updated}")
+        st.info(f"Data last updated: {last_updated}")
 
     if not gainers_df.empty:
         st.success(f"Found {len(gainers_df)} gainers meeting price/gain criteria")
 
-        with st.expander("📊 All Top Gainers (Before Filtering)", expanded=False):
+        with st.expander("All Top Gainers (Before Filtering)", expanded=False):
             st.dataframe(gainers_df, use_container_width=True, hide_index=True)
 
-        if st.button("🔍 Filter by Market Cap & News", type="primary"):
+        if st.button("Filter by Market Cap & News", type="primary"):
             filtered_gainers = filter_gainers_comprehensive(gainers_df, max_stocks=10)
 
             if not filtered_gainers.empty:
-                st.success(f"✅ {len(filtered_gainers)} stocks meet ALL criteria")
+                st.success(f"{len(filtered_gainers)} stocks meet ALL criteria")
                 st.dataframe(filtered_gainers, use_container_width=True, hide_index=True)
             else:
-                st.warning("❌ No stocks found meeting all criteria")
+                st.warning("No stocks found meeting all criteria")
     else:
         st.warning("Unable to fetch gainers data. Check API status or rate limits.")
     
     st.markdown("---")
     
     # Section 2: Earnings
-    st.header("📊 Earnings Tomorrow - Predicted to Beat")
-    st.caption("✅ Beat estimates in 3+ of last 4 quarters")
+    st.header("Earnings Tomorrow - Predicted to Beat")
+    st.caption("Beat estimates in 3+ of last 4 quarters")
     
     with st.spinner("Fetching earnings calendar..."):
         earnings_df = fetch_earnings_calendar()
@@ -442,24 +442,24 @@ def main():
     if not earnings_df.empty:
         st.success(f"Found {len(earnings_df)} stocks with earnings tomorrow")
 
-        with st.expander("📅 All Scheduled Earnings", expanded=False):
+        with st.expander("All Scheduled Earnings", expanded=False):
             st.dataframe(earnings_df.head(20), use_container_width=True, hide_index=True)
 
-        if st.button("🔍 Filter by Beat History", type="primary"):
+        if st.button("Filter by Beat History", type="primary"):
             filtered_earnings = filter_earnings_by_history(earnings_df, max_stocks=5)
 
             if not filtered_earnings.empty:
-                st.success(f"✅ {len(filtered_earnings)} stocks with strong beat history")
+                st.success(f"{len(filtered_earnings)} stocks with strong beat history")
                 st.dataframe(filtered_earnings, use_container_width=True, hide_index=True)
             else:
-                st.warning("❌ No stocks found with 3+ beats in last 4 quarters")
+                st.warning("No stocks found with 3+ beats in last 4 quarters")
     else:
         st.warning("No earnings scheduled for tomorrow or unable to fetch data")
     
     st.markdown("---")
-    st.caption(f"📊 Data: Alpha Vantage API | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    st.caption("💻 Developed by Aniket Mangalampalli")
-    st.caption("ℹ️ TOP_GAINERS_LOSERS endpoint provides real-time data during market hours and most recent trading day data when market is closed")
+    st.caption(f"Data: Alpha Vantage API | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.caption("Developed by Aniket Mangalampalli")
+    st.caption("ℹTOP_GAINERS_LOSERS endpoint provides real-time data during market hours and most recent trading day data when market is closed")
 
 if __name__ == "__main__":
     main()
